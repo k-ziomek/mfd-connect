@@ -1173,6 +1173,13 @@ If code cannot establish connection, it will start deployment of python using [D
     * `timeout` - Timeout for command execution.
     * `command` - Command to be executed.
     * `ip` - IP address of the EFI Shell target system.
+
+    Responses:
+    * `200` - command output in the body, `rc` header holds the return code.
+    * `400` - no command provided.
+    * `504` - the result did not arrive within `timeout` (+ client poll grace period). The body is empty
+      and `rc` is `-1`. The command is marked as *abandoned*, so it is never executed late and its result
+      is discarded on arrival - this keeps the caller and the EFI client in sync after a timeout.
   * `/post_result` - Endpoint to post results back to the host.
     Headers fields:
     * `CommandID` - Unique identifier for the command.
@@ -1184,8 +1191,23 @@ If code cannot establish connection, it will start deployment of python using [D
     * `CommandID` - Unique identifier for the command.
     Body:
     * Exception details.
-  * `/getCommandToExecute` - Endpoint to retrieve commands to be executed on the EFI Shell target system. Returns commandline with generated CommandID.
+  * `/getCommandToExecute` - Endpoint to retrieve commands to be executed on the EFI Shell target system. Returns commandline with generated CommandID. Commands abandoned after a timeout are skipped.
   * `/health/<ip>` - Endpoint to check the health status of the connection.
+  * `/disconnect_client/<ip>` - Removes the client and drops everything still queued for it.
+
+### Server resource limits
+
+The server keeps its in-memory state bounded, so a long test session cannot exhaust RAM:
+
+| Constant | Default | Meaning |
+| --- | --- | --- |
+| `STALE_OUTPUT_TTL_SECONDS` | `600` | Age after which an uncollected output or abandoned ID is evicted. |
+| `MAX_STORED_OUTPUTS` | `512` | Hard cap on results waiting to be collected. |
+| `MAX_ABANDONED_COMMAND_IDS` | `512` | Hard cap on remembered abandoned command IDs. |
+| `MAX_PENDING_COMMANDS_PER_CLIENT` | `256` | Hard cap on commands queued for a single client. |
+
+Waiting for a result is event driven - the caller is woken up as soon as the output is posted,
+and all shared state is guarded by a lock because Werkzeug serves requests in threads.
 
 `rshell.py` is a Connection class that calls RESTful API endpoints provided by `rshell_server.py` to execute commands on the EFI Shell target system. If required, starts `rshell_server.py` on the host machine.
 

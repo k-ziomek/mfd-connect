@@ -222,7 +222,7 @@ class TestRShellConnection:
 
     def test_execute_command_with_all_unsupported_args_and_skip_logging(self, rshell, mocker):
         post = mocker.patch("mfd_connect.rshell.requests.post")
-        post.return_value = Mock(text="out", headers={"rc": "7"})
+        post.return_value = Mock(status_code=200, text="out", headers={"rc": "7"})
 
         result = rshell.execute_command(
             "echo hello",
@@ -249,7 +249,10 @@ class TestRShellConnection:
         )
 
     def test_execute_command_logs_stdout_and_default_rc(self, rshell, mocker):
-        mocker.patch("mfd_connect.rshell.requests.post", return_value=Mock(text="stdout", headers={}))
+        mocker.patch(
+            "mfd_connect.rshell.requests.post",
+            return_value=Mock(status_code=200, text="stdout", headers={}),
+        )
 
         result = rshell.execute_command("echo hi")
 
@@ -257,12 +260,41 @@ class TestRShellConnection:
         assert result.stdout == "stdout"
 
     def test_execute_command_no_stdout(self, rshell, mocker):
-        mocker.patch("mfd_connect.rshell.requests.post", return_value=Mock(text="", headers={"rc": "0"}))
+        mocker.patch(
+            "mfd_connect.rshell.requests.post",
+            return_value=Mock(status_code=200, text="", headers={"rc": "0"}),
+        )
 
         result = rshell.execute_command("echo hi")
 
         assert result.return_code == 0
         assert result.stdout == ""
+
+    def test_execute_command_logs_server_timeout(self, rshell, mocker, caplog):
+        """A 504 from the server means the command was dropped - it must be visible in the logs."""
+        caplog.set_level(0)
+        mocker.patch(
+            "mfd_connect.rshell.requests.post",
+            return_value=Mock(status_code=504, text="", headers={"rc": "-1"}),
+        )
+
+        result = rshell.execute_command("FS0:\\Tools\\nvmupdate64e.efi /i /l")
+
+        assert result.return_code == -1
+        assert result.stdout == ""
+        assert "timed out" in caplog.text
+
+    def test_execute_command_logs_server_internal_error(self, rshell, mocker, caplog):
+        caplog.set_level(0)
+        mocker.patch(
+            "mfd_connect.rshell.requests.post",
+            return_value=Mock(status_code=500, text="", headers={}),
+        )
+
+        result = rshell.execute_command("echo hi")
+
+        assert result.return_code == -1
+        assert "internal error" in caplog.text
 
     def test_path_python_312_plus(self, rshell, monkeypatch, mocker):
         monkeypatch.setattr(sys, "version_info", (3, 12, 0))

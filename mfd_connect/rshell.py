@@ -76,10 +76,14 @@ class RShellConnection(Connection):
             logger.log(level=log_levels.MODULE_DEBUG, msg="Checking RShell server health")
             try:
                 status_code = requests.get(
-                    f"http://{self.server_ip}/health/{self._ip}", proxies={"no_proxy": "*"}
+                    f"http://{self.server_ip}/health/{self._ip}",
+                    proxies={"no_proxy": "*"},
                 ).status_code
             except requests.RequestException as e:
-                logger.log(level=log_levels.MODULE_DEBUG, msg=f"RShell server health check failed with error: {e}")
+                logger.log(
+                    level=log_levels.MODULE_DEBUG,
+                    msg=f"RShell server health check failed with error: {e}",
+                )
                 status_code = None
             if status_code == 200:
                 logger.log(level=log_levels.MODULE_DEBUG, msg="RShell server is healthy")
@@ -96,7 +100,10 @@ class RShellConnection(Connection):
 
         :param stop_client: Whether to stop the RShell client (default: False).
         """
-        requests.post(f"http://{self.server_ip}/disconnect_client/{self._ip}", proxies={"no_proxy": "*"})
+        requests.post(
+            f"http://{self.server_ip}/disconnect_client/{self._ip}",
+            proxies={"no_proxy": "*"},
+        )
         if stop_client:
             logger.log(level=log_levels.MODULE_DEBUG, msg="Stopping RShell client")
             self.execute_command("end")
@@ -201,13 +208,27 @@ class RShellConnection(Connection):
                 msg="Custom exceptions are not supported for RShellConnection and will be ignored.",
             )
         timeout_string = f" with timeout {timeout} seconds" if timeout is not None else ""
-        logger.log(level=log_levels.CMD, msg=f"Executing >{self._ip}> '{command}',{timeout_string}")
+        logger.log(
+            level=log_levels.CMD,
+            msg=f"Executing >{self._ip}> '{command}',{timeout_string}",
+        )
 
         response = requests.post(
             f"http://{self.server_ip}/execute_command",
             data={"command": command, "timeout": timeout, "ip": self._ip},
             proxies={"no_proxy": "*"},
         )
+        if response.status_code == 504:
+            logger.log(
+                level=log_levels.MODULE_DEBUG,
+                msg=f"RShell server timed out waiting for the result of '{command}'. "
+                f"The command was dropped so it will not be executed later by the client.",
+            )
+        elif response.status_code >= 500:
+            logger.log(
+                level=log_levels.MODULE_DEBUG,
+                msg=f"RShell server returned an internal error ({response.status_code}) for '{command}'.",
+            )
         completed_process = ConnectionCompletedProcess(
             args=command,
             stdout=response.text,
@@ -336,7 +357,10 @@ class RShellConnection(Connection):
                     break
                 time.sleep(1)
             else:
-                logger.log(level=log_levels.MODULE_DEBUG, msg="RShell server did not stop within timeout")
+                logger.log(
+                    level=log_levels.MODULE_DEBUG,
+                    msg="RShell server did not stop within timeout",
+                )
                 raise RuntimeError("RShell server did not stop within timeout")
 
             logger.log(level=log_levels.MODULE_DEBUG, msg="RShell server stopped")
